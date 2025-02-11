@@ -85,29 +85,15 @@ for:
     - "SET PATH=%PYTHON%;%PYTHON%/Scripts;%PATH%"
     - "python --version"
     - "pip install pdm tox"
-    - "pdm install --no-self"
+    - "pdm install -v --dev --no-self"
   build_script:
     - ps: |
         if ($env:PYTHON.EndsWith('-x64')) {
           $pdm_arch = 'x86_64'
-          $mediainfo_arch = 'x64'
-          $expected_hash = '86e915c2eb14a78b90806fdb51738e745c3f657788078b3398eb857e7ffa2a9cdd19d69f448d9f07842bb45b53f2c77ac9ef516df1adc2a967a1f1df05c621e7'
         } else {
           $pdm_arch = 'i386'
-          $mediainfo_arch = 'i386'
-          $expected_hash = '704d3e36cf7a59ca447aed415fab8c39e8037ba527b96fcc4d5dcc0faba04be0f51d7938d61ae935d78a7b25f19bfb6fce1b406621650fb3bcc386d56c805752'
         }
-        # cURL is required for test_parse_url
-        $MEDIAINFO_VERSION = '24.12'
-        $file = "MediaInfo_CLI_${MEDIAINFO_VERSION}_Windows_${mediainfo_arch}.zip"
-        Start-FileDownload "https://mediaarea.net/download/binary/mediainfo/${MEDIAINFO_VERSION}/${file}"
-        $hash = (Get-FileHash "${file}" -Algorithm SHA512).Hash
-        if ($hash -ne $expected_hash) {
-          Write-Error "Hash mismatch for ${file}: expected ${expected_hash}, got ${hash}"
-          exit 1
-        }
-        unzip -o "${file}" LIBCURL.DLL
-        pdm run "build_win32_${pdm_arch}"
+        pdm run build_wheel -p win32 -a "${pdm_arch}"
         # Install the wheel we created
         Get-ChildItem dist/*.whl | ForEach-Object { pip install $_.FullName }
   test_script:
@@ -128,10 +114,11 @@ for:
     source "${HOME}/venv${PYTHON_VERSION}/bin/activate"
     python --version
     pip install pdm tox
-    pdm install --no-self
+    pdm install -v --dev --no-self
   build_script: |
     set -eo pipefail
-    pdm run build_darwin
+    # The wheel works for both arm64 and x86_64
+    pdm run build_wheel -p darwin -a arm64
     # Install the wheel we created
     pip install dist/*.whl
   test_script:
@@ -161,25 +148,20 @@ for:
     python --version
     # "python -m pip" will work with the unpacked PyPy too, "pip" won't
     python -m pip install pdm tox
-    pdm install --no-self
+    pdm install -v --dev --no-self
   build_script: |
     set -eo pipefail
     # Build the source distribution (sdist) first, this way we make sure it
     # won't contain libmediainfo.so.0 which we download later
     pdm build -v --no-wheel
     # Each pdm build clears the "dist" folder and we need to keep all the
-    # created files to upload them at a later stage
-    mkdir dist_files
-    mv -v dist/*.gz dist_files/
+    # created files to upload them at a later stage, use build_wheel_no_clean
     # wheel for arm64
-    pdm run build_linux_arm64
-    mv -v dist/*.whl dist_files/
+    pdm run build_wheel_no_clean -p linux -a arm64
     # wheel for x86_64
-    pdm run build_linux_x86_64
-    # Install the wheel we created
-    pip install dist/*.whl
-    # Move back the arm64 and source distributions to "dist"
-    mv -v dist_files/* dist/
+    pdm run build_wheel_no_clean -p linux -a x86_64
+    # Install the x86_64 wheel we created
+    pip install dist/*x86_64.whl
   test_script: |
     # We want to see the progression of the tests so we can't run
     # tox environments in parallel
