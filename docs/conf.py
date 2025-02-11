@@ -13,14 +13,7 @@
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
-import os
-
-import setuptools_scm
-
-try:
-    from importlib import metadata
-except ImportError:
-    import importlib_metadata as metadata  # type: ignore
+from importlib.metadata import version as get_version
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
@@ -58,7 +51,7 @@ copyright = 'Patrick Altman, Louis Sautier'
 author = 'Patrick Altman, Louis Sautier'
 
 # fallback_root must be specified for this to work with PyPI tarballs
-version = setuptools_scm.get_version(root="..", fallback_root="..", relative_to=__file__)
+version = get_version("pymediainfo")
 
 # The full version, including alpha/beta/rc tags.
 release = version
