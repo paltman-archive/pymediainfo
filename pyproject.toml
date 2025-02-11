@@ -28,8 +28,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 requires-python = ">=3.9"
-dependencies = [
-]
+dependencies = []
 
 [project.optional-dependencies]
 tests = [
@@ -165,5 +164,108 @@ module = ["pymediainfo.*"]
 strict = true
 
 
+# https://docs.pytest.org/en/latest/reference/customize.html
 [tool.pytest.ini_options]
 addopts = "-vv -r a"
+
+
+# https://coverage.readthedocs.io/en/stable/
+[tool.coverage.run]
+source_pkgs = ["pymediainfo", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/pymediainfo/_version.py",
+]
+
+[tool.coverage.paths]
+pymediainfo = ["src/pymediainfo", "*/pymediainfo/src/pymediainfo"]
+tests = ["tests", "*/pymediainfo/tests"]
+
+[tool.coverage.report]
+exclude_also = [
+  "# pragma: no.cover",
+  "# pragma: no.branch",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
+
+# https://docs.astral.sh/ruff/
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "scripts", "docs"]
+exclude = [
+    "tests/data/*",
+    "_version.py",
+]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ISC001",  # conflict with `ruff format`
+    "D203",    # pydocstyle
+    "D105",
+    "D107",
+    "N802",    # pep8-naming
+    "N803",
+    "N806",
+    "ANN101",
+    "ANN102",
+    "ANN401",  # flake8-annotations
+    "ERA001",  # eradicate
+    "G004",    # flake8-logging-format
+    "TD",      # flake8-todos
+    "COM812",  # flake8-commas
+    "PTH123",  # flake8-use-pathlib
+    "SIM103",  # flake8-simplify
+    "PLR0913", # pylint
+    "PLR2004",
+    "PLR0912", # refactor
+    "PLR0915",
+    "PERF203", # Perflint
+    "PD901",   # pandas-vet
+    ### to be removed
+    "C901",    # mccabe
+]
+unfixable = [
+    "T201",
+    "T203",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "D104"]
+"**/tests/*" = [
+    "D",
+    "S",
+    "RUF012",
+    "N999",
+    "E402",
+    "INP001",
+    "PTH",
+    "T201",
+    "ANN",
+    "SLF",
+    "FBT",
+]
+"**/scripts/*" = ["INP001"]
+"**/docs/*" = [
+    "A001",
+    "D100",
+    "INP001",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+# https://docs.astral.sh/ruff/formatter/
+[tool.ruff.format]
+docstring-code-format = true
+
+
+# https://github.com/crate-ci/typos/blob/master/docs/reference.md
+[tool.typos.default]
+extend-ignore-re = [
+    "(?Rm)^.*#\\s*spellchecker:\\s*disable-line$",
+    "#\\s*spellchecker:off\\s*\\n.*\\n\\s*#\\s*spellchecker:on"
+]

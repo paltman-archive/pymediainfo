@@ -1,0 +1,25 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.29.5
+    hooks:
+      - id: typos
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: [--fix, --unsafe-fixes]
+      - id: ruff-format
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.23
+    hooks:
+      - id: validate-pyproject
+        name: validate-pyproject
