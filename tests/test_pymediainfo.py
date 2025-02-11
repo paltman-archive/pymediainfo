@@ -198,32 +198,6 @@ class MediaInfoPathlibTest(unittest.TestCase):
         self.assertRaises(FileNotFoundError, MediaInfo.parse, path)
 
 
-class MediaInfoFilenameTypesTest(unittest.TestCase):
-    def test_normalize_filename_str(self) -> None:
-        path = os.path.join(data_dir, "test.txt")
-        filename = MediaInfo._normalize_filename(path)
-        self.assertEqual(filename, path)
-
-    def test_normalize_filename_pathlib(self) -> None:
-        path = pathlib.Path(data_dir, "test.txt")
-        filename = MediaInfo._normalize_filename(path)
-        self.assertEqual(filename, os.path.join(data_dir, "test.txt"))
-
-    def test_normalize_filename_pathlike(self) -> None:
-        class PathLikeObject(os.PathLike[str]):
-            # pylint: disable=too-few-public-methods
-            def __fspath__(self) -> str:
-                return os.path.join(data_dir, "test.txt")
-
-        path = PathLikeObject()
-        filename = MediaInfo._normalize_filename(path)
-        self.assertEqual(filename, os.path.join(data_dir, "test.txt"))
-
-    def test_normalize_filename_url(self) -> None:
-        filename = MediaInfo._normalize_filename("https://localhost")
-        self.assertEqual(filename, "https://localhost")
-
-
 class MediaInfoTestParseNonExistentFile(unittest.TestCase):
     def test_parse_non_existent_path(self) -> None:
         path = os.path.join(data_dir, "this file does not exist")

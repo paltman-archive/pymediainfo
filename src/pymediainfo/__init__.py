@@ -5,14 +5,20 @@ from __future__ import annotations
 import ctypes
 import json
 import os
-import pathlib
 import re
 import sys
 import warnings
-import xml.etree.ElementTree as ET
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as get_version
-from typing import Any, overload
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast, overload
+from xml.etree import ElementTree as ET
+
+if TYPE_CHECKING:
+    from typing import BinaryIO, TextIO, TypeAlias
+
+    FileLike: TypeAlias = str | os.PathLike[str] | TextIO | BinaryIO
+
 
 try:
     __version__ = get_version("pymediainfo")
@@ -32,17 +38,16 @@ class Track:
     When a non-existing attribute is accessed, `None` is returned.
 
     Example:
-
-    >>> t = mi.tracks[0]
-    >>> t
-    <Track track_id='None', track_type='General'>
-    >>> t.duration
-    3000
-    >>> t.other_duration
-    ['3 s 0 ms', '3 s 0 ms', '3 s 0 ms',
-        '00:00:03.000', '00:00:03.000']
-    >>> type(t.non_existing)
-    NoneType
+        >>> t = mi.tracks[0]
+        >>> t
+        <Track track_id='None', track_type='General'>
+        >>> t.duration
+        3000
+        >>> t.other_duration
+        ['3 s 0 ms', '3 s 0 ms', '3 s 0 ms',
+            '00:00:03.000', '00:00:03.000']
+        >>> type(t.non_existing)
+        NoneType
 
     All available attributes can be obtained by calling :func:`to_data`.
     """
@@ -104,21 +109,17 @@ class Track:
                         pass
 
     def __repr__(self) -> str:
-        return "<Track track_id='{}', track_type='{}'>".format(self.track_id, self.track_type)
+        return f"<Track track_id='{self.track_id}', track_type='{self.track_type}'>"
 
     def to_data(self) -> dict[str, Any]:
-        """
-        Returns a dict representation of the track attributes.
+        """Return a dict representation of the track attributes.
 
         Example:
-
         >>> sorted(track.to_data().keys())[:3]
         ['codec', 'codec_extensions_usually_used', 'codec_url']
         >>> t.to_data()["file_size"]
         5988
 
-
-        :rtype: dict
         """
         return self.__dict__
 
@@ -126,7 +127,6 @@ class Track:
 class MediaInfo:
     """
     An object containing information about a media file.
-
 
     :class:`MediaInfo` objects can be created by directly calling code from
     libmediainfo (in this case, the library must be present on the system):
@@ -147,13 +147,14 @@ class MediaInfo:
         parameter before parsing `xml`.
     :raises xml.etree.ElementTree.ParseError: if passed invalid XML.
     :var tracks: A list of :py:class:`Track` objects which the media file contains.
-        For instance:
 
-        >>> mi = pymediainfo.MediaInfo.parse("/path/to/file.mp4")
-        >>> for t in mi.tracks:
-        ...     print(t)
-        <Track track_id='None', track_type='General'>
-        <Track track_id='1', track_type='Text'>
+    For instance:
+
+    >>> mi = pymediainfo.MediaInfo.parse("/path/to/file.mp4")
+    >>> for t in mi.tracks:
+    ...     print(t)
+    <Track track_id='None', track_type='General'>
+    <Track track_id='1', track_type='Text'>
     """
 
     def __eq__(self, other: object) -> bool:
@@ -162,15 +163,12 @@ class MediaInfo:
         return self.tracks == other.tracks
 
     def __init__(self, xml: str, encoding_errors: str = "strict") -> None:
-        xml_dom = ET.fromstring(xml.encode("utf-8", encoding_errors))
+        xml_dom = ET.fromstring(xml.encode("utf-8", encoding_errors))  # noqa: S314
         self.tracks = []
         # This is the case for libmediainfo < 18.03
         # https://github.com/sbraz/pymediainfo/issues/57
         # https://github.com/MediaArea/MediaInfoLib/commit/575a9a32e6960ea34adb3bc982c64edfa06e95eb
-        if xml_dom.tag == "File":
-            xpath = "track"
-        else:
-            xpath = "File/track"
+        xpath = "track" if xml_dom.tag == "File" else "File/track"
         for xml_track in xml_dom.iterfind(xpath):
             self.tracks.append(Track(xml_track))
 
@@ -179,67 +177,59 @@ class MediaInfo:
 
     @property
     def general_tracks(self) -> list[Track]:
-        """
+        r"""General tracks.
+
         :return: All :class:`Track`\\s of type ``General``.
-        :rtype: list of :class:`Track`\\s
         """
         return self._tracks("General")
 
     @property
     def video_tracks(self) -> list[Track]:
-        """
+        r"""Video tracks.
+
         :return: All :class:`Track`\\s of type ``Video``.
-        :rtype: list of :class:`Track`\\s
         """
         return self._tracks("Video")
 
     @property
     def audio_tracks(self) -> list[Track]:
-        """
+        r"""Audio tracks.
+
         :return: All :class:`Track`\\s of type ``Audio``.
-        :rtype: list of :class:`Track`\\s
         """
         return self._tracks("Audio")
 
     @property
     def text_tracks(self) -> list[Track]:
-        """
+        r"""Text tracks.
+
         :return: All :class:`Track`\\s of type ``Text``.
-        :rtype: list of :class:`Track`\\s
         """
         return self._tracks("Text")
 
     @property
     def other_tracks(self) -> list[Track]:
-        """
+        r"""Other tracks.
+
         :return: All :class:`Track`\\s of type ``Other``.
-        :rtype: list of :class:`Track`\\s
         """
         return self._tracks("Other")
 
     @property
     def image_tracks(self) -> list[Track]:
-        """
+        r"""Image tracks.
+
         :return: All :class:`Track`\\s of type ``Image``.
-        :rtype: list of :class:`Track`\\s
         """
         return self._tracks("Image")
 
     @property
     def menu_tracks(self) -> list[Track]:
-        """
+        r"""Menu tracks.
+
         :return: All :class:`Track`\\s of type ``Menu``.
-        :rtype: list of :class:`Track`\\s
         """
         return self._tracks("Menu")
-
-    @staticmethod
-    def _normalize_filename(filename: Any) -> Any:
-        if hasattr(os, "PathLike") and isinstance(filename, os.PathLike):
-            return os.fspath(filename)
-        if pathlib is not None and isinstance(filename, pathlib.PurePath):
-            return str(filename)
-        return filename
 
     @classmethod
     def _define_library_prototypes(cls, lib: Any) -> Any:
@@ -278,7 +268,7 @@ class MediaInfo:
         lib.MediaInfo_Close.restype = None
 
     @staticmethod
-    def _get_library_paths(os_is_nt: bool) -> tuple[str, ...]:
+    def _get_library_paths(*, os_is_nt: bool) -> tuple[str, ...]:
         library_paths: tuple[str, ...]
         if os_is_nt:
             library_paths = ("MediaInfo.dll",)
@@ -286,13 +276,13 @@ class MediaInfo:
             library_paths = ("libmediainfo.0.dylib", "libmediainfo.dylib")
         else:
             library_paths = ("libmediainfo.so.0",)
-        script_dir = os.path.dirname(__file__)
+        script_dir = Path(__file__).resolve().parent
         # Look for the library file in the script folder
         for library in library_paths:
-            absolute_library_path = os.path.join(script_dir, library)
-            if os.path.isfile(absolute_library_path):
+            absolute_library_path = script_dir / library
+            if absolute_library_path.is_file():
                 # If we find it, don't try any other filename
-                library_paths = (absolute_library_path,)
+                library_paths = (os.fspath(absolute_library_path),)
                 break
         return library_paths
 
@@ -304,7 +294,7 @@ class MediaInfo:
         os_is_nt = os.name in ("nt", "dos", "os2", "ce")
         lib_type = ctypes.WinDLL if os_is_nt else ctypes.CDLL  # type: ignore[attr-defined]
         if library_file is None:
-            library_paths = cls._get_library_paths(os_is_nt)
+            library_paths = cls._get_library_paths(os_is_nt=os_is_nt)
         else:
             library_paths = (library_file,)
         exceptions = []
@@ -321,42 +311,41 @@ class MediaInfo:
                     lib_version_str = match.group(1)
                     lib_version = tuple(int(_) for _ in lib_version_str.split("."))
                 else:
-                    raise RuntimeError("Could not determine library version")
-                return (lib, handle, lib_version_str, lib_version)
+                    msg = "Could not determine library version"
+                    raise RuntimeError(msg)
             except OSError as exc:
                 exceptions.append(str(exc))
-        raise OSError(
-            "Failed to load library from {} - {}".format(
-                ", ".join(library_paths), ", ".join(exceptions)
-            )
-        )
+            else:
+                return (lib, handle, lib_version_str, lib_version)
+
+        # Could not load the library
+        library_paths_str = ", ".join(library_paths)
+        exceptions_str = ", ".join(exceptions)
+        msg = f"Failed to load library from {library_paths_str} - {exceptions_str}"
+        raise OSError(msg)
 
     @classmethod
     def can_parse(cls, library_file: str | None = None) -> bool:
-        """
-        Checks whether media files can be analyzed using libmediainfo.
+        """Check whether media files can be analyzed using libmediainfo.
 
         :param str library_file: path to the libmediainfo library, this should only be used if
             the library cannot be auto-detected. See also :ref:`library_autodetection` which
             explains how the library file is detected when this parameter is unset.
-        :rtype: bool
         """
         try:
             lib, handle = cls._get_library(library_file)[:2]
             lib.MediaInfo_Close(handle)
             lib.MediaInfo_Delete(handle)
-            return True
-        except Exception:  # pylint: disable=broad-except
+        except Exception:  # noqa: BLE001
             return False
+        return True
 
     # The method may be called with output=<str>, in which case it returns a str
     @overload
     @classmethod
     def parse(
-        # pylint: disable=too-many-arguments, too-many-locals
-        # pylint: disable=too-many-branches, too-many-statements
         cls,
-        filename: Any,
+        filename: FileLike,
         *,
         library_file: str | None = None,
         cover_data: bool = False,
@@ -366,17 +355,15 @@ class MediaInfo:
         legacy_stream_display: bool = False,
         mediainfo_options: dict[str, str] | None = None,
         output: str,
-        buffer_size: int | None = 64 * 1024,
+        buffer_size: int = 64 * 1024,
     ) -> str: ...
 
     # Or it may be called with output=None, in which case it returns a MediaInfo object
     @overload
     @classmethod
     def parse(
-        # pylint: disable=too-many-arguments, too-many-locals
-        # pylint: disable=too-many-branches, too-many-statements
         cls,
-        filename: Any,
+        filename: FileLike,
         *,
         library_file: str | None = None,
         cover_data: bool = False,
@@ -386,15 +373,13 @@ class MediaInfo:
         legacy_stream_display: bool = False,
         mediainfo_options: dict[str, str] | None = None,
         output: None = None,
-        buffer_size: int | None = 64 * 1024,
+        buffer_size: int = 64 * 1024,
     ) -> MediaInfo: ...
 
     @classmethod
     def parse(
-        # pylint: disable=too-many-arguments, too-many-locals
-        # pylint: disable=too-many-branches, too-many-statements
         cls,
-        filename: Any,
+        filename: FileLike,
         *,
         library_file: str | None = None,
         cover_data: bool = False,
@@ -404,10 +389,9 @@ class MediaInfo:
         legacy_stream_display: bool = False,
         mediainfo_options: dict[str, str] | None = None,
         output: str | None = None,
-        buffer_size: int | None = 64 * 1024,
+        buffer_size: int = 64 * 1024,
     ) -> MediaInfo | str:
-        """
-        Analyze a media file using libmediainfo.
+        """Analyze a media file using libmediainfo.
 
         .. note::
             Because of the way the underlying library works, this method should not
@@ -462,23 +446,18 @@ class MediaInfo:
 
         Examples:
             >>> pymediainfo.MediaInfo.parse("tests/data/sample.mkv")
-                <pymediainfo.MediaInfo object at 0x7fa83a3db240>
+            <pymediainfo.MediaInfo object at 0x7fa83a3db240>
 
             >>> import json
-            >>> mi = pymediainfo.MediaInfo.parse("tests/data/sample.mkv",
-            ...     output="JSON")
+            >>> mi = pymediainfo.MediaInfo.parse("tests/data/sample.mkv", output="JSON")
             >>> json.loads(mi)["media"]["track"][0]
-                {'@type': 'General', 'TextCount': '1', 'FileExtension': 'mkv',
-                    'FileSize': '5904',  … }
-
+            {'@type': 'General', 'TextCount': '1', 'FileExtension': 'mkv',
+                'FileSize': '5904',  … }
 
         """
         lib, handle, lib_version_str, lib_version = cls._get_library(library_file)
         # The XML option was renamed starting with version 17.10
-        if lib_version >= (17, 10):
-            xml_option = "OLDXML"
-        else:
-            xml_option = "XML"
+        xml_option = "OLDXML" if lib_version >= (17, 10) else "XML"
         # Cover_Data is not extracted by default since version 18.03
         # See https://github.com/MediaArea/MediaInfoLib/commit/d8fd88a1
         if lib_version >= (18, 3):
@@ -491,25 +470,31 @@ class MediaInfo:
         if mediainfo_options is not None:
             if lib_version < (19, 9):
                 warnings.warn(
-                    "This version of MediaInfo (v{}) does not support resetting all "
-                    "options to their default values, passing it custom options is not recommended "
-                    "and may result in unpredictable behavior, see "
-                    "https://github.com/MediaArea/MediaInfoLib/issues/1128".format(lib_version_str),
+                    f"This version of MediaInfo (v{lib_version_str}) does not support resetting "
+                    "all options to their default values, passing it custom options is not "
+                    "recommended and may result in unpredictable behavior, see "
+                    "https://github.com/MediaArea/MediaInfoLib/issues/1128",
                     RuntimeWarning,
+                    stacklevel=2,
                 )
             for option_name, option_value in mediainfo_options.items():
                 lib.MediaInfo_Option(handle, option_name, option_value)
         try:
+            filename = cast("TextIO | BinaryIO", filename)
             filename.seek(0, 2)
             file_size = filename.tell()
             filename.seek(0)
-        except AttributeError:  # filename is not a file-like object
+        except AttributeError:
+            # filename is not a file-like object
             file_size = None
 
-        if file_size is not None:  # We have a file-like object, use the buffer protocol:
+        # We have a file-like object, use the buffer protocol:
+        if file_size is not None:
+            filename = cast("TextIO | BinaryIO", filename)
             # Some file-like objects do not have a mode
             if "b" not in getattr(filename, "mode", "b"):
-                raise ValueError("File should be opened in binary mode")
+                msg = "File should be opened in binary mode"
+                raise ValueError(msg)
             lib.MediaInfo_Open_Buffer_Init(handle, file_size, 0)
             while True:
                 buffer = filename.read(buffer_size)
@@ -528,19 +513,21 @@ class MediaInfo:
                 else:
                     break
             lib.MediaInfo_Open_Buffer_Finalize(handle)
-        else:  # We have a filename, simply pass it:
-            filename = cls._normalize_filename(filename)
-            # If an error occured
+
+        # We have a filename, simply pass it:
+        else:
+            filename = cast("str | os.PathLike[str]", filename)
+            filename = os.fspath(filename)
+            # If an error occurred
             if lib.MediaInfo_Open(handle, filename) == 0:
                 lib.MediaInfo_Close(handle)
                 lib.MediaInfo_Delete(handle)
                 # If filename doesn't look like a URL and doesn't exist
-                if "://" not in filename and not os.path.exists(filename):
+                if "://" not in filename and not os.path.exists(filename):  # noqa: PTH110
                     raise FileNotFoundError(filename)
                 # We ran into another kind of error
-                raise RuntimeError(
-                    "An error occured while opening {}" " with libmediainfo".format(filename)
-                )
+                msg = f"An error occurred while opening {filename} with libmediainfo"
+                raise RuntimeError(msg)
         info: str = lib.MediaInfo_Inform(handle, 0)
         # Reset all options to their defaults so that they aren't
         # retained when the parse method is called several times
@@ -557,17 +544,9 @@ class MediaInfo:
         return info
 
     def to_data(self) -> dict[str, Any]:
-        """
-        Returns a dict representation of the object's :py:class:`Tracks <Track>`.
-
-        :rtype: dict
-        """
+        """Return a dict representation of the object's :py:class:`Tracks <Track>`."""
         return {"tracks": [_.to_data() for _ in self.tracks]}
 
     def to_json(self) -> str:
-        """
-        Returns a JSON representation of the object's :py:class:`Tracks <Track>`.
-
-        :rtype: str
-        """
+        """Return a JSON representation of the object's :py:class:`Tracks <Track>`."""
         return json.dumps(self.to_data())
