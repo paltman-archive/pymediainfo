@@ -1,6 +1,4 @@
-"""
-This module is a wrapper for the MediaInfo library.
-"""
+"""This module is a wrapper for the MediaInfo library."""
 
 from __future__ import annotations
 
@@ -12,12 +10,13 @@ import re
 import sys
 import warnings
 import xml.etree.ElementTree as ET
-from importlib import metadata
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as get_version
 from typing import Any, overload
 
 try:
-    __version__ = metadata.version("pymediainfo")
-except metadata.PackageNotFoundError:
+    __version__ = get_version("pymediainfo")
+except PackageNotFoundError:
     __version__ = ""
 
 
