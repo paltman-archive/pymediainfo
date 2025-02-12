@@ -46,6 +46,10 @@ dev = [
     "ipython",
     "ruff",
     "mypy>=1.0",
+    "tomlkit",
+    "requests",
+    "types-requests",
+    "wheel>=0.44",
 ]
 
 [project.urls]
