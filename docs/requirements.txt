@@ -1,4 +1,3 @@
 alabaster
 myst-parser
-setuptools_scm
 sphinx

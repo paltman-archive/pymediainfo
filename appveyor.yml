@@ -15,7 +15,7 @@ environment:
   TWINE_PASSWORD:
     secure: Jp2QpmAii1mmAXmotdXmPx5q679oMcRolziuu9m2pawkvOnRJtWMsI4uWiTiSbiw+HMbyyWwVpy+FiaPsHZxtM863PNNJidW1WDam4kn8EM+rznjgZfO9NSCcwZJU5jcTYCwuXo3+FnVNK5rvQ8QJ+Zu6WzH1Ysb+uJSz8e6xt7d7hoZbb9VH5bJC7tYrw+bH+TfA9juVpIYfCavozLLTDLqTcvPfJ+LXMPbiZO+oOztNsLRsviH2QAPXaLspXvCr6qUVH3A84KCdfSXCOZG0g/eYUZ6ilMLESe7DrYZrRc=
   matrix:
-    - TOXENV: docs,black,flake8,isort,mypy,pylint
+    - TOXENV: pre-commit,docs,mypy
       APPVEYOR_BUILD_WORKER_IMAGE: *linux_image
       # The BUILD_TYPE variable allows us to separate normal Linux builds from
       # the QA one

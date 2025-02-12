@@ -39,16 +39,13 @@ tests = [
 docs = [
     "alabaster",
     "myst-parser",
-    "setuptools_scm",
     "sphinx",
 ]
 dev = [
+    "pre-commit",
     "ipython",
+    "ruff",
     "mypy>=1.0",
-    "black",
-    "isort",
-    "flake8",
-    "pylint",
 ]
 
 [project.urls]
