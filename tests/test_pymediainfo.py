@@ -7,18 +7,19 @@ import json
 import os
 import pathlib
 import pickle
+import re
 import sys
 import tempfile
 import threading
 import unittest
-import xml
+from xml.etree import ElementTree as ET
 
 import pytest
 
 from pymediainfo import MediaInfo
 
 data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-test_media_files = [
+test_media_files: list[str] = [
     "sample.mkv",
     "sample.mp4",
     "sample_with_cover.mp3",
@@ -37,26 +38,26 @@ def _get_library_version() -> tuple[str, tuple[int, ...]]:
 
 class MediaInfoTest(unittest.TestCase):
     def setUp(self) -> None:
-        with open(os.path.join(data_dir, "sample.xml"), "r", encoding="utf-8") as f:
+        with open(os.path.join(data_dir, "sample.xml"), encoding="utf-8") as f:
             self.xml_data = f.read()
         self.media_info = MediaInfo(self.xml_data)
 
     def test_populate_tracks(self) -> None:
-        self.assertEqual(4, len(self.media_info.tracks))
+        assert len(self.media_info.tracks) == 4
 
     def test_valid_video_track(self) -> None:
         for track in self.media_info.tracks:
             if track.track_type == "Video":
-                self.assertEqual("DV", track.codec)
-                self.assertEqual("Interlaced", track.scan_type)
+                assert track.codec == "DV"
+                assert track.scan_type == "Interlaced"
                 break
 
     def test_track_integer_attributes(self) -> None:
         for track in self.media_info.tracks:
             if track.track_type == "Audio":
-                self.assertTrue(isinstance(track.duration, int))
-                self.assertTrue(isinstance(track.bit_rate, int))
-                self.assertTrue(isinstance(track.sampling_rate, int))
+                assert isinstance(track.duration, int)
+                assert isinstance(track.bit_rate, int)
+                assert isinstance(track.sampling_rate, int)
                 break
 
     def test_track_other_attributes(self) -> None:
@@ -64,32 +65,31 @@ class MediaInfoTest(unittest.TestCase):
             track for track in self.media_info.tracks if track.track_type == "General"
         ]
         general_track = general_tracks[0]
-        self.assertEqual(5, len(general_track.other_file_size))
-        self.assertEqual(
-            ["1mn 1s", "1mn 1s 394ms", "1mn 1s", "00:01:01.394"], general_track.other_duration
-        )
+        assert len(general_track.other_file_size) == 5
+        assert general_track.other_duration == ["1mn 1s", "1mn 1s 394ms", "1mn 1s", "00:01:01.394"]
 
     def test_track_existing_other_attributes(self) -> None:
         with open(os.path.join(data_dir, "issue100.xml"), encoding="utf-8") as f:
             media_info = MediaInfo(f.read())
         general_tracks = [track for track in media_info.tracks if track.track_type == "General"]
         general_track = general_tracks[0]
-        self.assertEqual(general_track.other_format_list, "RTP / RTP")
+        assert general_track.other_format_list == "RTP / RTP"
 
     def test_load_mediainfo_from_string(self) -> None:
-        self.assertEqual(4, len(self.media_info.tracks))
+        assert len(self.media_info.tracks) == 4
 
     def test_getting_attribute_that_doesnot_exist(self) -> None:
-        self.assertTrue(self.media_info.tracks[0].does_not_exist is None)
+        assert self.media_info.tracks[0].does_not_exist is None
 
 
 class MediaInfoInvalidXMLTest(unittest.TestCase):
     def setUp(self) -> None:
-        with open(os.path.join(data_dir, "invalid.xml"), "r", encoding="utf-8") as f:
+        with open(os.path.join(data_dir, "invalid.xml"), encoding="utf-8") as f:
             self.xml_data = f.read()
 
     def test_parse_invalid_xml(self) -> None:
-        self.assertRaises(xml.etree.ElementTree.ParseError, MediaInfo, self.xml_data)
+        with pytest.raises(ET.ParseError):
+            MediaInfo(self.xml_data)
 
 
 class MediaInfoLibraryTest(unittest.TestCase):
@@ -98,31 +98,32 @@ class MediaInfoLibraryTest(unittest.TestCase):
         self.non_full_mi = MediaInfo.parse(os.path.join(data_dir, "sample.mp4"), full=False)
 
     def test_can_parse_true(self) -> None:
-        self.assertTrue(MediaInfo.can_parse())
+        assert MediaInfo.can_parse()
 
     def test_track_count(self) -> None:
-        self.assertEqual(len(self.media_info.tracks), 3)
+        assert len(self.media_info.tracks) == 3
 
     def test_track_types(self) -> None:
-        self.assertEqual(self.media_info.tracks[1].track_type, "Video")
-        self.assertEqual(self.media_info.tracks[2].track_type, "Audio")
+        assert self.media_info.tracks[1].track_type == "Video"
+        assert self.media_info.tracks[2].track_type == "Audio"
 
     def test_track_details(self) -> None:
-        self.assertEqual(self.media_info.tracks[1].format, "AVC")
-        self.assertEqual(self.media_info.tracks[2].format, "AAC")
-        self.assertEqual(self.media_info.tracks[1].duration, 958)
-        self.assertEqual(self.media_info.tracks[2].duration, 980)
+        assert self.media_info.tracks[1].format == "AVC"
+        assert self.media_info.tracks[2].format == "AAC"
+        assert self.media_info.tracks[1].duration == 958
+        assert self.media_info.tracks[2].duration == 980
 
     def test_full_option(self) -> None:
-        self.assertEqual(self.media_info.tracks[0].footersize, "59")
-        self.assertEqual(self.non_full_mi.tracks[0].footersize, None)
+        assert self.media_info.tracks[0].footersize == "59"
+        assert self.non_full_mi.tracks[0].footersize is None
 
     def test_raises_on_nonexistent_library(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             nonexistent_library = os.path.join(tmp_dir, "nonexistent-libmediainfo.so")
-            with pytest.raises(OSError) as exc:
+            with pytest.raises(OSError) as exc:  # noqa: PT011
                 MediaInfo.parse(
-                    os.path.join(data_dir, "sample.mp4"), library_file=nonexistent_library
+                    os.path.join(data_dir, "sample.mp4"),
+                    library_file=nonexistent_library,
                 )
             assert rf"Failed to load library from {nonexistent_library}" in str(exc.value)
 
@@ -133,12 +134,14 @@ class MediaInfoFileLikeTest(unittest.TestCase):
             MediaInfo.parse(f)
 
     def test_raises_on_text_mode_even_with_text(self) -> None:
-        with open(os.path.join(data_dir, "sample.xml"), encoding="utf-8") as f:
-            self.assertRaises(ValueError, MediaInfo.parse, f)
+        path = os.path.join(data_dir, "sample.xml")
+        with open(path, encoding="utf-8") as f, pytest.raises(ValueError):  # noqa: PT011
+            MediaInfo.parse(f)
 
     def test_raises_on_text_mode(self) -> None:
-        with open(os.path.join(data_dir, "sample.mkv"), encoding="utf-8") as f:
-            self.assertRaises(ValueError, MediaInfo.parse, f)
+        path = os.path.join(data_dir, "sample.mkv")
+        with open(path, encoding="utf-8") as f, pytest.raises(ValueError):  # noqa: PT011
+            MediaInfo.parse(f)
 
 
 class MediaInfoUnicodeXMLTest(unittest.TestCase):
@@ -146,12 +149,12 @@ class MediaInfoUnicodeXMLTest(unittest.TestCase):
         self.media_info = MediaInfo.parse(os.path.join(data_dir, "sample.mkv"))
 
     def test_parse_file_with_unicode_tags(self) -> None:
-        self.assertEqual(
-            self.media_info.tracks[0].title,
+        expected = (
             "Dès Noël où un zéphyr haï me vêt de glaçons "
-            "würmiens je dîne d’exquis rôtis de bœuf au kir à "
-            "l’aÿ d’âge mûr & cætera !",
+            "würmiens je dîne d’exquis rôtis de bœuf au kir à "  # noqa: RUF001
+            "l’aÿ d’âge mûr & cætera !"  # noqa: RUF001
         )
+        assert self.media_info.tracks[0].title == expected
 
 
 class MediaInfoUnicodeFileNameTest(unittest.TestCase):
@@ -159,7 +162,7 @@ class MediaInfoUnicodeFileNameTest(unittest.TestCase):
         self.media_info = MediaInfo.parse(os.path.join(data_dir, "accentué.txt"))
 
     def test_parse_unicode_file(self) -> None:
-        self.assertEqual(len(self.media_info.tracks), 1)
+        assert len(self.media_info.tracks) == 1
 
 
 @pytest.mark.skipif(
@@ -184,50 +187,26 @@ class MediaInfoURLTest(unittest.TestCase):
 
     def test_parse_url(self) -> None:
         media_info = MediaInfo.parse(self.url)
-        self.assertEqual(len(media_info.tracks), 3)
+        assert len(media_info.tracks) == 3
 
 
 class MediaInfoPathlibTest(unittest.TestCase):
     def test_parse_pathlib_path(self) -> None:
         path = pathlib.Path(data_dir) / "sample.mp4"
         media_info = MediaInfo.parse(path)
-        self.assertEqual(len(media_info.tracks), 3)
+        assert len(media_info.tracks) == 3
 
     def test_parse_non_existent_path_pathlib(self) -> None:
         path = pathlib.Path(data_dir) / "this file does not exist"
-        self.assertRaises(FileNotFoundError, MediaInfo.parse, path)
-
-
-class MediaInfoFilenameTypesTest(unittest.TestCase):
-    def test_normalize_filename_str(self) -> None:
-        path = os.path.join(data_dir, "test.txt")
-        filename = MediaInfo._normalize_filename(path)
-        self.assertEqual(filename, path)
-
-    def test_normalize_filename_pathlib(self) -> None:
-        path = pathlib.Path(data_dir, "test.txt")
-        filename = MediaInfo._normalize_filename(path)
-        self.assertEqual(filename, os.path.join(data_dir, "test.txt"))
-
-    def test_normalize_filename_pathlike(self) -> None:
-        class PathLikeObject(os.PathLike[str]):
-            # pylint: disable=too-few-public-methods
-            def __fspath__(self) -> str:
-                return os.path.join(data_dir, "test.txt")
-
-        path = PathLikeObject()
-        filename = MediaInfo._normalize_filename(path)
-        self.assertEqual(filename, os.path.join(data_dir, "test.txt"))
-
-    def test_normalize_filename_url(self) -> None:
-        filename = MediaInfo._normalize_filename("https://localhost")
-        self.assertEqual(filename, "https://localhost")
+        with pytest.raises(FileNotFoundError):
+            MediaInfo.parse(path)
 
 
 class MediaInfoTestParseNonExistentFile(unittest.TestCase):
     def test_parse_non_existent_path(self) -> None:
         path = os.path.join(data_dir, "this file does not exist")
-        self.assertRaises(FileNotFoundError, MediaInfo.parse, path)
+        with pytest.raises(FileNotFoundError):
+            MediaInfo.parse(path)
 
 
 class MediaInfoCoverDataTest(unittest.TestCase):
@@ -238,33 +217,34 @@ class MediaInfoCoverDataTest(unittest.TestCase):
         self.no_cover_mi = MediaInfo.parse(os.path.join(data_dir, "sample_with_cover.mp3"))
 
     def test_parse_cover_data(self) -> None:
-        self.assertEqual(
-            self.cover_mi.tracks[0].cover_data,
+        expected = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAAAAA"
-            "AAAQCEeRdzAAAADUlEQVR4nGP4x8DwHwAE/AH+QSRCQgAAAABJRU5ErkJggg==",
+            "AAAQCEeRdzAAAADUlEQVR4nGP4x8DwHwAE/AH+QSRCQgAAAABJRU5ErkJggg=="
         )
+        assert self.cover_mi.tracks[0].cover_data == expected
 
     def test_parse_no_cover_data(self) -> None:
         lib_version_str, lib_version = _get_library_version()
         if lib_version < (18, 3):
             pytest.skip(
                 "The Cover_Data option is not supported by this library version "
-                "(v{} detected, v18.03 required)".format(lib_version_str)
+                f"(v{lib_version_str} detected, v18.03 required)"
             )
-        self.assertEqual(self.no_cover_mi.tracks[0].cover_data, None)
+        assert self.no_cover_mi.tracks[0].cover_data is None
 
 
 class MediaInfoTrackParsingTest(unittest.TestCase):
     def test_track_parsing(self) -> None:
         media_info = MediaInfo.parse(os.path.join(data_dir, "issue55.flv"))
-        self.assertEqual(len(media_info.tracks), 2)
+        assert len(media_info.tracks) == 2
 
 
 class MediaInfoRuntimeErrorTest(unittest.TestCase):
     def test_parse_invalid_url(self) -> None:
         # This is the easiest way to cause a parsing error
         # since non-existent files return a different exception
-        self.assertRaises(RuntimeError, MediaInfo.parse, "unsupportedscheme://")
+        with pytest.raises(RuntimeError):
+            MediaInfo.parse("unsupportedscheme://")
 
 
 class MediaInfoSlowParseTest(unittest.TestCase):
@@ -274,7 +254,7 @@ class MediaInfoSlowParseTest(unittest.TestCase):
         )
 
     def test_slow_parse_speed(self) -> None:
-        self.assertEqual(self.media_info.tracks[2].stream_size, "3353 / 45")
+        assert self.media_info.tracks[2].stream_size == "3353 / 45"
 
 
 class MediaInfoEqTest(unittest.TestCase):
@@ -284,16 +264,16 @@ class MediaInfoEqTest(unittest.TestCase):
         self.mp4_mi = MediaInfo.parse(os.path.join(data_dir, "sample.mp4"))
 
     def test_eq(self) -> None:
-        self.assertEqual(self.mp3_mi.tracks[0], self.mp3_other_mi.tracks[0])
-        self.assertEqual(self.mp3_mi, self.mp3_other_mi)
-        self.assertNotEqual(self.mp3_mi.tracks[0], self.mp4_mi.tracks[0])
-        self.assertNotEqual(self.mp3_mi, self.mp4_mi)
+        assert self.mp3_mi.tracks[0] == self.mp3_other_mi.tracks[0]
+        assert self.mp3_mi == self.mp3_other_mi
+        assert self.mp3_mi.tracks[0] != self.mp4_mi.tracks[0]
+        assert self.mp3_mi != self.mp4_mi
 
     def test_pickle_unpickle(self) -> None:
         pickled_track = pickle.dumps(self.mp4_mi.tracks[0])
-        self.assertEqual(self.mp4_mi.tracks[0], pickle.loads(pickled_track))
+        assert self.mp4_mi.tracks[0] == pickle.loads(pickled_track)
         pickled_mi = pickle.dumps(self.mp4_mi)
-        self.assertEqual(self.mp4_mi, pickle.loads(pickled_mi))
+        assert self.mp4_mi == pickle.loads(pickled_mi)
 
 
 class MediaInfoLegacyStreamDisplayTest(unittest.TestCase):
@@ -304,8 +284,8 @@ class MediaInfoLegacyStreamDisplayTest(unittest.TestCase):
         )
 
     def test_legacy_stream_display(self) -> None:
-        self.assertEqual(self.media_info.tracks[1].channel_s, 2)
-        self.assertEqual(self.legacy_mi.tracks[1].channel_s, "2 / 1 / 1")
+        assert self.media_info.tracks[1].channel_s == 2
+        assert self.legacy_mi.tracks[1].channel_s == "2 / 1 / 1"
 
 
 class MediaInfoOptionsTest(unittest.TestCase):
@@ -314,7 +294,7 @@ class MediaInfoOptionsTest(unittest.TestCase):
         if lib_version < (19, 9):
             pytest.skip(
                 "The Reset option is not supported by this library version "
-                "(v{} detected, v19.09 required)".format(lib_version_str)
+                f"(v{lib_version_str} detected, v19.09 required)"
             )
         self.raw_language_mi = MediaInfo.parse(
             os.path.join(data_dir, "sample.mkv"),
@@ -328,8 +308,8 @@ class MediaInfoOptionsTest(unittest.TestCase):
         )
 
     def test_mediainfo_options(self) -> None:
-        self.assertEqual(self.normal_mi.tracks[1].other_language[0], "English")
-        self.assertEqual(self.raw_language_mi.tracks[1].language, "en")
+        assert self.normal_mi.tracks[1].other_language[0] == "English"
+        assert self.raw_language_mi.tracks[1].language == "en"
 
 
 # Unittests can't be parametrized
@@ -340,7 +320,7 @@ def test_thread_safety(test_file: str) -> None:
     if lib_version < (20, 3):
         pytest.skip(
             "This version of the library is not thread-safe "
-            "(v{} detected, v20.03 required)".format(lib_version_str)
+            f"(v{lib_version_str} detected, v20.03 required)"
         )
     expected_result = MediaInfo.parse(os.path.join(data_dir, test_file))
     results = []
@@ -351,7 +331,7 @@ def test_thread_safety(test_file: str) -> None:
             result = MediaInfo.parse(os.path.join(data_dir, test_file))
             with lock:
                 results.append(result)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except  # noqa: BLE001
             pass
 
     threads = []
@@ -389,24 +369,24 @@ def test_filelike_returns_the_same(test_file: str) -> None:
 class MediaInfoOutputTest(unittest.TestCase):
     def test_text_output(self) -> None:
         media_info = MediaInfo.parse(os.path.join(data_dir, "sample.mp4"), output="")
-        self.assertRegex(media_info, r"Stream size\s+: 373836\b")
+        assert re.search(r"Stream size\s+: 373836\b", media_info)
 
     def test_json_output(self) -> None:
         lib_version_str, lib_version = _get_library_version()
         if lib_version < (18, 3):
             pytest.skip(
                 "This version of the library does not support JSON output "
-                "(v{} detected, v18.03 required)".format(lib_version_str)
+                f"(v{lib_version_str} detected, v18.03 required)"
             )
         media_info = MediaInfo.parse(os.path.join(data_dir, "sample.mp4"), output="JSON")
         parsed = json.loads(media_info)
-        self.assertEqual(parsed["media"]["track"][0]["FileSize"], "404567")
+        assert parsed["media"]["track"][0]["FileSize"] == "404567"
 
     def test_parameter_output(self) -> None:
         media_info = MediaInfo.parse(
             os.path.join(data_dir, "sample.mp4"), output="General;%FileSize%"
         )
-        self.assertEqual(media_info, "404567")
+        assert media_info == "404567"
 
 
 class MediaInfoTrackShortcutsTests(unittest.TestCase):
@@ -418,32 +398,32 @@ class MediaInfoTrackShortcutsTests(unittest.TestCase):
             self.mi_other = MediaInfo(f.read())
 
     def test_empty_list(self) -> None:
-        self.assertEqual(self.mi_audio.text_tracks, [])
+        assert self.mi_audio.text_tracks == []
 
     def test_general_tracks(self) -> None:
-        self.assertEqual(len(self.mi_audio.general_tracks), 1)
-        self.assertIsNotNone(self.mi_audio.general_tracks[0].file_name)
+        assert len(self.mi_audio.general_tracks) == 1
+        assert self.mi_audio.general_tracks[0].file_name is not None
 
     def test_video_tracks(self) -> None:
-        self.assertEqual(len(self.mi_audio.video_tracks), 1)
-        self.assertIsNotNone(self.mi_audio.video_tracks[0].display_aspect_ratio)
+        assert len(self.mi_audio.video_tracks) == 1
+        assert self.mi_audio.video_tracks[0].display_aspect_ratio is not None
 
     def test_audio_tracks(self) -> None:
-        self.assertEqual(len(self.mi_audio.audio_tracks), 1)
-        self.assertIsNotNone(self.mi_audio.audio_tracks[0].sampling_rate)
+        assert len(self.mi_audio.audio_tracks) == 1
+        assert self.mi_audio.audio_tracks[0].sampling_rate is not None
 
     def test_text_tracks(self) -> None:
-        self.assertEqual(len(self.mi_text.text_tracks), 1)
-        self.assertEqual(self.mi_text.text_tracks[0].kind_of_stream, "Text")
+        assert len(self.mi_text.text_tracks) == 1
+        assert self.mi_text.text_tracks[0].kind_of_stream == "Text"
 
     def test_other_tracks(self) -> None:
-        self.assertEqual(len(self.mi_other.other_tracks), 2)
-        self.assertEqual(self.mi_other.other_tracks[0].type, "Time code")
+        assert len(self.mi_other.other_tracks) == 2
+        assert self.mi_other.other_tracks[0].type == "Time code"
 
     def test_image_tracks(self) -> None:
-        self.assertEqual(len(self.mi_image.image_tracks), 1)
-        self.assertEqual(self.mi_image.image_tracks[0].width, 1)
+        assert len(self.mi_image.image_tracks) == 1
+        assert self.mi_image.image_tracks[0].width == 1
 
     def test_menu_tracks(self) -> None:
-        self.assertEqual(len(self.mi_text.menu_tracks), 1)
-        self.assertEqual(self.mi_text.menu_tracks[0].kind_of_stream, "Menu")
+        assert len(self.mi_text.menu_tracks) == 1
+        assert self.mi_text.menu_tracks[0].kind_of_stream == "Menu"
