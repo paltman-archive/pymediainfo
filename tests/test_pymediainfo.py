@@ -163,8 +163,8 @@ class MediaInfoUnicodeFileNameTest(unittest.TestCase):
 
 
 @pytest.mark.skipif(
-    sys.version_info < (3, 7),
-    reason="SimpleHTTPRequestHandler's 'directory' argument was added in Python 3.7",
+    sys.platform.startswith("win"),
+    reason="The bundled libmediainfo library is not compiled with libcurl on Windows",
 )
 class MediaInfoURLTest(unittest.TestCase):
     def setUp(self) -> None:

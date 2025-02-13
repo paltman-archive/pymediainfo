@@ -72,7 +72,6 @@ def update_hashes(*, update_version: bool = False, timeout: int = 20, verbose: b
                     version,
                     info["platform"],
                     info["arch"],
-                    get_curl=bool(info.get("cli_source", False)),
                 )
             except Exception as e:  # noqa: BLE001
                 if verbose:

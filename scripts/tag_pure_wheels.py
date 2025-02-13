@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -28,13 +27,14 @@ def tag_wheel(
     platform_tag: str,
     folder: str | os.PathLike[str] | None = None,
     *,
+    match: str = "*-py3-none-any.whl",
     verbose: bool = True,
 ) -> list[str]:
     """Tag the wheels in folder with new platform tags."""
     dist_dir = Path(folder or DEFAULT_DIST_DIR)
 
     new_wheels = []
-    for wheel_path in dist_dir.glob("*-py3-none-any.whl"):
+    for wheel_path in dist_dir.glob(match):
         new_wheel = tags(wheel_path, platform_tags=platform_tag, remove=True)
         if verbose:
             print(f"Tagged {wheel_path.name} -> {new_wheel}")
@@ -44,6 +44,9 @@ def tag_wheel(
 
 
 if __name__ == "__main__":
+    import argparse
+    import platform
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "-p",
@@ -62,12 +65,25 @@ if __name__ == "__main__":
         help="the tag to add",
     )
     parser.add_argument(
+        "-A",
+        "--auto",
+        action="store_true",
+        help="use the current platform and architecture",
+    )
+    parser.add_argument(
         "-q",
         "--quiet",
         help="hide progress messages",
         action="store_true",
     )
     args = parser.parse_args()
+
+    if not any((args.auto, args.platform and args.arch)):
+        parser.error("either -A/--auto, or -a/--arch with -p/--platform must be used")
+
+    if args.auto:
+        args.platform = platform.system().lower()
+        args.arch = platform.machine().lower()
 
     # Get platform_tag from pyproject.toml
     if not args.platform_tag:

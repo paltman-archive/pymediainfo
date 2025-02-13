@@ -29,10 +29,7 @@ if TYPE_CHECKING:
 
 
 #: Base URL for downloading MediaInfo library
-BASE_URL_LIB: str = "https://mediaarea.net/download/binary/libmediainfo0"
-
-#: Base URL for downloading MediaInfo CLI
-BASE_URL_CLI: str = "https://mediaarea.net/download/binary/mediainfo"
+BASE_URL: str = "https://mediaarea.net/download/binary/libmediainfo0"
 
 
 def get_file_blake2b(file_path: os.PathLike[str] | str, chunksize: int = 1 << 20) -> str:
@@ -56,9 +53,6 @@ class Downloader:
 
     #: Architecture of the bundled MediaInfo library
     arch: Literal["x86_64", "arm64", "i386"]
-
-    #: Download the CLI or library MediaInfo
-    get_cli: bool = False
 
     #: BLAKE2b hash of the downloaded MediaInfo library
     checksums: str | None = None
@@ -92,7 +86,7 @@ class Downloader:
             win_arch = "ARM64"
         return win_arch
 
-    def get_compressed_lib_file_name(self) -> str:
+    def get_compressed_file_name(self) -> str:
         """Get the compressed library file name."""
         if self.platform == "linux":
             suffix = f"Lambda_{self.arch}.zip"
@@ -106,30 +100,9 @@ class Downloader:
 
         return f"MediaInfo_DLL_{self.version}_{suffix}"
 
-    def get_compressed_cli_file_name(self) -> str:
-        """Get the compressed CLI file name."""
-        if self.platform == "linux":
-            suffix = f"Lambda_{self.arch}.zip"
-        elif self.platform == "darwin":
-            suffix = "Mac.dmg"
-        elif self.platform == "win32":
-            suffix = f"Windows_{self.win_arch}.zip"
-        else:
-            msg = f"platform not recognized: {self.platform}"
-            raise ValueError(msg)
-
-        return f"MediaInfo_CLI_{self.version}_{suffix}"
-
-    def get_compressed_file_name(self) -> str:
-        """Get the compressed file name."""
-        if self.get_cli:
-            return self.get_compressed_cli_file_name()
-        return self.get_compressed_lib_file_name()
-
     def get_url(self, file_name: str) -> str:
         """Get the URL to download the MediaInfo library."""
-        base_url = BASE_URL_CLI if self.get_cli else BASE_URL_LIB
-        return f"{base_url}/{self.version}/{file_name}"
+        return f"{BASE_URL}/{self.version}/{file_name}"
 
     def compare_hash(self, h: str) -> bool:
         """Compare downloaded hash with expected."""
@@ -182,20 +155,9 @@ class Downloader:
 
         license_file: Path | None = None
         lib_file: Path | None = None
-        libcurl_file: Path | None = None
-
-        # CLI, only for Windows
-        if self.get_cli:
-            if self.platform != "win32":
-                msg = f"uncompressing the CLI source is only done on Windows: {file.name!r}"
-                raise ValueError(msg)
-            with ZipFile(file) as fd:
-                libcurl_file = folder / "libcurl.dll"
-                fd.extract("LIBCURL.DLL", tmp_dir)
-                shutil.move(os.fspath(tmp_dir / "LIBCURL.DLL"), os.fspath(libcurl_file))
 
         # Linux
-        elif file.name.endswith(".zip") and self.platform == "linux":
+        if file.name.endswith(".zip") and self.platform == "linux":
             with ZipFile(file) as fd:
                 license_file = folder / "LICENSE"
                 fd.extract("LICENSE", tmp_dir)
@@ -247,8 +209,6 @@ class Downloader:
             files["license"] = os.fspath(license_file.relative_to(folder))
         if lib_file is not None and lib_file.is_file():
             files["lib"] = os.fspath(lib_file.relative_to(folder))
-        if libcurl_file is not None and libcurl_file.is_file():
-            files["libcurl"] = os.fspath(libcurl_file.relative_to(folder))
 
         return files
 
@@ -314,7 +274,6 @@ def download_files(
     platform: Literal["linux", "darwin", "win32"],
     arch: Literal["x86_64", "arm64", "i386"],
     *,
-    get_cli: bool = False,
     checksums: str | None = None,
     timeout: int = 20,
     verbose: bool = True,
@@ -325,7 +284,6 @@ def download_files(
         version=version,
         platform=platform,
         arch=arch,
-        get_cli=get_cli,
         checksums=checksums,
     )
     return downloader.download(folder, timeout=timeout, verbose=verbose)
@@ -336,12 +294,11 @@ def get_file_hashes(
     platform: Literal["linux", "darwin", "win32"],
     arch: Literal["x86_64", "arm64", "i386"],
     *,
-    get_curl: bool = False,
     timeout: int = 20,
     verbose: bool = True,
 ) -> str:
     """Download the library and license files to the output folder."""
-    downloader = Downloader(version=version, platform=platform, arch=arch, get_cli=get_curl)
+    downloader = Downloader(version=version, platform=platform, arch=arch)
     return downloader.get_downloaded_hash(timeout=timeout, verbose=verbose)
 
 
@@ -362,7 +319,6 @@ def clean_files(
         "LICENSE",
         "MediaInfo.dll",
         "libmediainfo.*",
-        "libcurl.dll",
     ]
 
     # list files to delete
@@ -419,14 +375,6 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
     )
     parser.add_argument(
-        "--only-libcurl",
-        help=(
-            "Only for Windows platform, download only the libcurl.dll file. "
-            "If False, download both libmediainfoa and libcurl."
-        ),
-        action="store_true",
-    )
-    parser.add_argument(
         "--timeout",
         type=int,
         help="URL request timeout in seconds",
@@ -465,10 +413,6 @@ if __name__ == "__main__":
         args.platform = platform.system().lower()
         args.arch = platform.machine().lower()
 
-    if args.only_libcurl and args.platform != "win32":
-        # This is only needed on Windows
-        args.only_libcurl = False
-
     # Clean folder
     if args.clean:
         clean_files(args.folder, verbose=not args.quiet)
@@ -478,11 +422,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # Get version
-    version, info = get_version_and_bundle_info(
-        args.platform,
-        args.arch,
-        get_curl=args.only_libcurl,
-    )
+    version, info = get_version_and_bundle_info(args.platform, args.arch)
     # Get checksums
     checksums = info["blake2b_sums"]
 
@@ -492,7 +432,6 @@ if __name__ == "__main__":
             version,
             args.platform,
             args.arch,
-            get_curl=args.only_libcurl,
             timeout=args.timeout,
             verbose=not args.quiet,
         )
@@ -500,38 +439,14 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # Download files
-    extracted_files: dict[str, str] = {}
-    extracted_files |= download_files(
+    download_files(
         args.folder,
         version,
         args.platform,
         args.arch,
         checksums=checksums,
-        get_cli=args.only_libcurl,
         verbose=not args.quiet,
         timeout=args.timeout,
     )
-
-    # Also downloads libcurl on Windows
-    if args.platform == "win32" and not args.only_libcurl:
-        # Get libcurl checksums
-        _, info = get_version_and_bundle_info(args.platform, args.arch, get_curl=True)
-        # Get checksums
-        checksums = info["blake2b_sums"]
-
-        extracted_files |= download_files(
-            args.folder,
-            version,
-            args.platform,
-            args.arch,
-            checksums=checksums,
-            get_cli=True,
-            verbose=not args.quiet,
-            timeout=args.timeout,
-        )
-
-    # Print summary
-    if not args.quiet:
-        print(f"All downloaded files: {extracted_files}")
 
     sys.exit(0)

@@ -12,16 +12,15 @@ import tomlkit
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from typing import Literal, NotRequired, TypedDict
+    from typing import Literal, TypedDict
 
     class BundledWheelInfo(TypedDict):
         """Info about a bundled wheel."""
 
+        tag: str
         platform: Literal["linux", "darwin", "win32"]
         arch: Literal["x86_64", "arm64", "i386"]
         blake2b_sums: str
-        tag: NotRequired[str]
-        cli_source: NotRequired[bool]
 
     class MediainfoConfigDict(TypedDict):
         """Configuration of the bundled wheels."""
@@ -57,24 +56,14 @@ def get_mediainfo_config() -> MediainfoConfigDict:
     return cast("MediainfoConfigDict", media_info_config)
 
 
-def get_bundle_info(
-    config: list[BundledWheelInfo],
-    platform: str,
-    arch: str,
-    *,
-    get_curl: bool = False,
-) -> BundledWheelInfo:
+def get_bundle_info(config: list[BundledWheelInfo], platform: str, arch: str) -> BundledWheelInfo:
     """Get the information about the wheel for the specific platform and arch."""
     for info in config:
-        if (
-            info["platform"] == platform
-            and info["arch"] == arch
-            and bool(info.get("cli_source", False)) == get_curl
-        ):
+        if info["platform"] == platform and info["arch"] == arch:
             return info
 
     # No match
-    key = (platform, arch, f"get_curl={get_curl}")
+    key = (platform, arch)
     msg = f"No match for {key}"
     raise KeyError(msg)
 
@@ -88,8 +77,6 @@ def get_version() -> str:
 def get_version_and_bundle_info(
     platform: str,
     arch: str,
-    *,
-    get_curl: bool = False,
 ) -> tuple[str, BundledWheelInfo]:
     """Get Mediainfo version and specific information for the bundled library."""
     mediainfo_config = get_mediainfo_config()
@@ -99,7 +86,6 @@ def get_version_and_bundle_info(
         mediainfo_config["wheel"],
         platform,
         arch,
-        get_curl=get_curl,
     )
     return version, info
 

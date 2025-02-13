@@ -99,24 +99,6 @@ platform = "win32"
 arch = "arm64"
 blake2b_sums = "e9f426f2e873f65ca1fdede5f8eb6dc3e871e682b821ad3f62acb1428eda5a27ce363f77a2c621d1b15f8e9b94976a10afb56fc069325ca7ba4efad14df03105"
 
-[[tool.bundled_libmediainfo.wheel]]
-cli_source = true
-platform = "win32"
-arch = "x86_64"
-blake2b_sums = "6b47901f5b132bb666d7786f2d103b88359a01a4eeaad35f7e36d90f5b289a2685a108daab0cb2baed0cfc50e2f993443a42b232b1287985f06ca29908412e93"
-
-[[tool.bundled_libmediainfo.wheel]]
-cli_source = true
-platform = "win32"
-arch = "i386"
-blake2b_sums = "e4c0ed6a87beab6ff28e77f2b5e91afb6f5a7a58ab5dc0aa1b8c038123b35f30ec55473787e54173905bbcfff0391d8845176db6847b1c3b96a7c6575bdd9619"
-
-[[tool.bundled_libmediainfo.wheel]]
-cli_source = true
-platform = "win32"
-arch = "arm64"
-blake2b_sums = "c6c58fca40a4f2aa03fee39909ad8e7bf1b35b1f55577088d49c0cd54d822b1f2985976a9aabd158c0ac7c8af5fd96f36154c1dfadc17283e518b3c204b97e63"
-
 
 # https://pdm-project.org/latest/
 [tool.pdm.version]
