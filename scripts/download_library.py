@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import shutil
@@ -18,31 +19,20 @@ from zipfile import ZipFile
 
 import requests
 
+script_folder = Path(__file__).resolve().parent
+sys.path.append(str(script_folder))
+
+from mediainfo_config import get_current_platform_and_arch, get_version_and_bundle_info  # noqa: E402
+
 if TYPE_CHECKING:
-    from typing import Literal
+    from mediainfo_config import Architecture, Platform
 
 
 #: Base URL for downloading MediaInfo library
 BASE_URL: str = "https://mediaarea.net/download/binary/libmediainfo0"
 
-#: Version of the bundled MediaInfo library
-MEDIAINFO_VERSION: str = "24.12"
 
-# fmt: off
-#: BLAKE2b hashes for the specific MediaInfo version, given the (platform, arch)
-MEDIAINFO_HASHES: dict[tuple[str, str], str] = {
-    ("linux", "x86_64"): "13c4afb2948187cc06f13b1cd7d7a49f8618b8d1e3a440d9e96ef7b486a653d5e2567aae97dc253e3d3f484a7837e4b5a972abab4803223300a79c601c0bcce1",
-    ("linux", "arm64"): "4e5a9826fa987f4bde46a6586894d45f3d5381f25d8886dfef67f5db3a9f4377ecafc12acc6e2d71e43b062b686c2db2523052a1f3dd7505a41091847788d114",
-    # The same file is used for darwin x86_64 and arm64 (suffixed Mac_x86_64+arm64.tar.bz2)
-    ("darwin", "x86_64"): "65b8195f0859369fa0ab1870cbde1535bb57f16bde451b22585d849c870f1ca92972328c11edd15b6f8187445dd58efff7107cfce39d2be7a88e8c434589b4ae",
-    ("darwin", "arm64"): "65b8195f0859369fa0ab1870cbde1535bb57f16bde451b22585d849c870f1ca92972328c11edd15b6f8187445dd58efff7107cfce39d2be7a88e8c434589b4ae",
-    ("win32", "x86_64"): "f831c588e9eaf51201b4cc7995dce66852591764fc5ef05effd3a8a2037ff5d37ec039eef5d1f990f05bd7452c1cad720e95b77a095f9f1a690689e351fc00b8",
-    ("win32", "i386"): "0f0e14c103eac858fe683ec7d51634d62e5e0af658940fd26608249f1048846a92a334438204fe5ecfceb70cb00e5550bfb717a77f10816a2583b5041bb61790",
-}
-# fmt: on
-
-
-def get_file_blake2b(file_path: os.PathLike | str, chunksize: int = 1 << 20) -> str:
+def get_file_blake2b(file_path: os.PathLike[str] | str, chunksize: int = 1 << 20) -> str:
     """Get the BLAKE2b hash of a file."""
     blake2b = hashlib.blake2b()
     with open(file_path, "rb") as f:
@@ -55,8 +45,17 @@ def get_file_blake2b(file_path: os.PathLike | str, chunksize: int = 1 << 20) -> 
 class Downloader:
     """Downloader for the MediaInfo library files."""
 
-    platform: Literal["linux", "darwin", "win32"]
-    arch: Literal["x86_64", "arm64", "i386"]
+    #: Version of the bundled MediaInfo library
+    version: str
+
+    #: Platform of the bundled MediaInfo library
+    platform: Platform
+
+    #: Architecture of the bundled MediaInfo library
+    arch: Architecture
+
+    #: BLAKE2b hash of the downloaded MediaInfo library
+    checksums: str | None = None
 
     def __post_init__(self) -> None:
         """Check that the combination of platform and arch is allowed."""
@@ -64,58 +63,70 @@ class Downloader:
         if self.platform in ("linux", "darwin"):
             allowed_arch = ["x86_64", "arm64"]
         elif self.platform == "win32":
-            allowed_arch = ["x86_64", "i386"]
+            allowed_arch = ["x86_64", "i386", "arm64"]
         else:
-            raise ValueError(f"platform not recognized: {self.platform}")
+            msg = f"platform not recognized: {self.platform}"
+            raise ValueError(msg)
 
         # Check the platform and arch is a valid combination
         if allowed_arch is not None and self.arch not in allowed_arch:
-            raise ValueError(
+            msg = (
                 f"arch {self.arch} is not allowed for platform {self.platform}; "
                 f"must be one of {allowed_arch}"
             )
+            raise ValueError(msg)
+
+    @property
+    def win_arch(self) -> str:
+        """Arch for Windows as it appears in MediaInfo downloads."""
+        win_arch: str = self.arch
+        if self.arch == "x86_64":
+            win_arch = "x64"
+        elif self.arch == "arm64":
+            win_arch = "ARM64"
+        return win_arch
 
     def get_compressed_file_name(self) -> str:
-        """Get the compressed file name."""
+        """Get the compressed library file name."""
         if self.platform == "linux":
             suffix = f"Lambda_{self.arch}.zip"
         elif self.platform == "darwin":
             suffix = "Mac_x86_64+arm64.tar.bz2"
         elif self.platform == "win32":
-            win_arch = "x64" if self.arch == "x86_64" else self.arch
-            suffix = f"Windows_{win_arch}_WithoutInstaller.zip"
+            suffix = f"Windows_{self.win_arch}_WithoutInstaller.zip"
         else:
-            raise ValueError(f"platform not recognized: {self.platform}")
+            msg = f"platform not recognized: {self.platform}"
+            raise ValueError(msg)
 
-        return f"MediaInfo_DLL_{MEDIAINFO_VERSION}_{suffix}"
+        return f"MediaInfo_DLL_{self.version}_{suffix}"
 
-    def get_url(self) -> str:
+    def get_url(self, file_name: str) -> str:
         """Get the URL to download the MediaInfo library."""
-        compressed_file = self.get_compressed_file_name()
-        return f"{BASE_URL}/{MEDIAINFO_VERSION}/{compressed_file}"
+        return f"{BASE_URL}/{self.version}/{file_name}"
 
     def compare_hash(self, h: str) -> bool:
         """Compare downloaded hash with expected."""
-        key = (self.platform, self.arch)
-        expected = MEDIAINFO_HASHES.get(key)
         # Check expected hash exists
-        if expected is None:
-            raise ValueError(f"{key}, expected hash not found.")
+        if self.checksums is None:
+            msg = "hash was not provided."
+            raise ValueError(msg)
 
         # Check hashes match
-        if expected != h:
-            raise ValueError(f"hash mismatch for {key}: expected {expected}, got {h}")
+        if self.checksums != h:
+            key = (self.platform, self.arch)
+            msg = f"hash mismatch for {key}: expected {self.checksums}, got {h}"
+            raise ValueError(msg)
 
         return True
 
     def download_upstream(
         self,
         url: str,
-        outpath: os.PathLike,
+        outpath: os.PathLike[str],
         *,
+        check_hash: bool = True,
         timeout: int = 20,
-        verbose: bool = True,
-    ) -> None:
+    ) -> str:
         """Download the compressed file from upstream URL."""
         response = requests.get(url, stream=True, timeout=timeout)
         response.raise_for_status()
@@ -124,26 +135,29 @@ class Downloader:
                 f.write(chunk)
 
         downloaded_hash = get_file_blake2b(outpath)
-        self.compare_hash(downloaded_hash)
+        if check_hash:
+            self.compare_hash(downloaded_hash)
+        return downloaded_hash
 
     def unpack(
         self,
-        file: os.PathLike | str,
-        folder: os.PathLike | str,
+        file: os.PathLike[str] | str,
+        folder: os.PathLike[str] | str,
     ) -> dict[str, str]:
         """Extract compressed files."""
         file = Path(file)
         folder = Path(folder)
-        compressed_file = self.get_compressed_file_name()
 
         if not file.is_file():
-            raise ValueError(f"compressed file not found: {file.name!r}")
+            msg = f"compressed file not found: {file.name!r}"
+            raise ValueError(msg)
         tmp_dir = file.parent
 
         license_file: Path | None = None
         lib_file: Path | None = None
+
         # Linux
-        if compressed_file.endswith(".zip") and self.platform == "linux":
+        if file.name.endswith(".zip") and self.platform == "linux":
             with ZipFile(file) as fd:
                 license_file = folder / "LICENSE"
                 fd.extract("LICENSE", tmp_dir)
@@ -154,7 +168,7 @@ class Downloader:
                 shutil.move(os.fspath(tmp_dir / "lib/libmediainfo.so.0.0.0"), os.fspath(lib_file))
 
         # macOS (darwin)
-        elif compressed_file.endswith(".tar.bz2") and self.platform == "darwin":
+        elif file.name.endswith(".tar.bz2") and self.platform == "darwin":
             with tarfile.open(file) as fd:
                 kwargs: dict[str, Any] = {}
                 # Set for security reasons, see
@@ -177,11 +191,14 @@ class Downloader:
                 )
 
         # Windows (win32)
-        elif compressed_file.endswith(".zip") and self.platform == "win32":
+        elif file.name.endswith(".zip") and self.platform == "win32":
             with ZipFile(file) as fd:
                 license_file = folder / "License.html"
                 fd.extract("Developers/License.html", tmp_dir)
-                shutil.move(os.fspath(tmp_dir / "Developers/License.html"), os.fspath(license_file))
+                shutil.move(
+                    os.fspath(tmp_dir / "Developers/License.html"),
+                    os.fspath(license_file),
+                )
 
                 lib_file = folder / "MediaInfo.dll"
                 fd.extract("MediaInfo.dll", tmp_dir)
@@ -197,23 +214,29 @@ class Downloader:
 
     def download(
         self,
-        folder: os.PathLike | str,
+        folder: os.PathLike[str] | str,
         *,
+        check_hash: bool = True,
         timeout: int = 20,
         verbose: bool = True,
     ) -> dict[str, str]:
         """Download the library and license files."""
         folder = Path(folder)
 
-        url = self.get_url()
         compressed_file = self.get_compressed_file_name()
+        url = self.get_url(compressed_file)
 
         extracted_files = {}
         with TemporaryDirectory() as tmp_dir:
             outpath = Path(tmp_dir) / compressed_file
             if verbose:
                 print(f"Downloading MediaInfo library from {url}")
-            self.download_upstream(url, outpath, timeout=timeout, verbose=verbose)
+            self.download_upstream(
+                url,
+                outpath,
+                check_hash=check_hash,
+                timeout=timeout,
+            )
 
             if verbose:
                 print(f"Extracting {compressed_file}")
@@ -223,22 +246,64 @@ class Downloader:
                 print(f"Extracted files: {extracted_files}")
         return extracted_files
 
+    def get_downloaded_hash(
+        self,
+        *,
+        timeout: int = 20,
+        verbose: bool = True,
+    ) -> str:
+        """Get the hash of the downloaded file."""
+        compressed_file = self.get_compressed_file_name()
+        url = self.get_url(compressed_file)
+
+        with TemporaryDirectory() as tmp_dir:
+            outpath = Path(tmp_dir) / compressed_file
+            if verbose:
+                print(f"Downloading MediaInfo library from {url}")
+            return self.download_upstream(
+                url,
+                outpath,
+                timeout=timeout,
+                check_hash=False,
+            )
+
 
 def download_files(
-    folder: os.PathLike | str,
-    platform: Literal["linux", "darwin", "win32"],
-    arch: Literal["x86_64", "arm64", "i386"],
+    folder: os.PathLike[str] | str,
+    version: str,
+    platform: Platform,
+    arch: Architecture,
     *,
+    checksums: str | None = None,
     timeout: int = 20,
     verbose: bool = True,
 ) -> dict[str, str]:
     """Download the library and license files to the output folder."""
-    downloader = Downloader(platform=platform, arch=arch)
+    # Download
+    downloader = Downloader(
+        version=version,
+        platform=platform,
+        arch=arch,
+        checksums=checksums,
+    )
     return downloader.download(folder, timeout=timeout, verbose=verbose)
 
 
+def get_file_hashes(
+    version: str,
+    platform: Platform,
+    arch: Architecture,
+    *,
+    timeout: int = 20,
+    verbose: bool = True,
+) -> str:
+    """Download the library and license files to the output folder."""
+    downloader = Downloader(version=version, platform=platform, arch=arch)
+    return downloader.get_downloaded_hash(timeout=timeout, verbose=verbose)
+
+
 def clean_files(
-    folder: os.PathLike | str,
+    folder: os.PathLike[str] | str,
     *,
     verbose: bool = True,
 ) -> bool:
@@ -249,10 +314,15 @@ def clean_files(
             print(f"folder does not exist: {os.fspath(folder)!r}")
         return False
 
-    glob_patterns = ["License.html", "LICENSE", "MediaInfo.dll", "libmediainfo.*"]
+    glob_patterns = [
+        "License.html",
+        "LICENSE",
+        "MediaInfo.dll",
+        "libmediainfo.*",
+    ]
 
     # list files to delete
-    to_delete: list[os.PathLike] = []
+    to_delete: list[os.PathLike[str]] = []
     for pattern in glob_patterns:
         to_delete.extend(folder.glob(pattern))
 
@@ -265,16 +335,15 @@ def clean_files(
     return True
 
 
-if __name__ == "__main__":
-    import argparse
-    import platform
-
+def make_parser() -> argparse.ArgumentParser:
+    """Make the argument parser."""
     default_folder = Path(__file__).resolve().parent.parent / "src" / "pymediainfo"
 
     parser = argparse.ArgumentParser(
         description="download MediaInfo files from upstream.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+
     parser.add_argument(
         "-p",
         "--platform",
@@ -292,6 +361,12 @@ if __name__ == "__main__":
         "--auto",
         action="store_true",
         help="use the current platform and architecture",
+    )
+    parser.add_argument(
+        "-s",
+        "--print-sums",
+        help="download the file from upstream and return the BLAKE2b hash",
+        action="store_true",
     )
     parser.add_argument(
         "-q",
@@ -319,6 +394,11 @@ if __name__ == "__main__":
         help="clean the output folder of downloaded files.",
     )
 
+    return parser
+
+
+if __name__ == "__main__":
+    parser = make_parser()
     args = parser.parse_args()
 
     if not any((args.auto, args.clean, args.platform and args.arch)):
@@ -328,21 +408,42 @@ if __name__ == "__main__":
         parser.error(f"{args.folder} does not exist or is not a folder")
 
     if args.auto:
-        args.platform = platform.system().lower()
-        args.arch = platform.machine().lower()
+        args.platform, args.arch = get_current_platform_and_arch()
 
     # Clean folder
     if args.clean:
         clean_files(args.folder, verbose=not args.quiet)
 
-    # Download files
-    if args.platform is not None and args.arch is not None:
-        extracted_files = download_files(
-            args.folder,
+    # Exit if no platform-arch was provided
+    if args.platform is None or args.arch is None:
+        sys.exit(0)
+
+    # Get version
+    version, info = get_version_and_bundle_info(args.platform, args.arch)
+    # Get checksums
+    checksums = info["blake2b_sums"]
+
+    # Print the checksums and exit
+    if args.print_sums:
+        checksums = get_file_hashes(
+            version,
             args.platform,
             args.arch,
-            verbose=not args.quiet,
             timeout=args.timeout,
+            verbose=not args.quiet,
         )
+        print(checksums)
+        sys.exit(0)
+
+    # Download files
+    download_files(
+        args.folder,
+        version,
+        args.platform,
+        args.arch,
+        checksums=checksums,
+        verbose=not args.quiet,
+        timeout=args.timeout,
+    )
 
     sys.exit(0)
