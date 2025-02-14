@@ -90,23 +90,9 @@ for:
     - ps: |
         if ($env:PYTHON.EndsWith('-x64')) {
           $pdm_arch = 'x86_64'
-          $mediainfo_arch = 'x64'
-          $expected_hash = '86e915c2eb14a78b90806fdb51738e745c3f657788078b3398eb857e7ffa2a9cdd19d69f448d9f07842bb45b53f2c77ac9ef516df1adc2a967a1f1df05c621e7'
         } else {
           $pdm_arch = 'i386'
-          $mediainfo_arch = 'i386'
-          $expected_hash = '704d3e36cf7a59ca447aed415fab8c39e8037ba527b96fcc4d5dcc0faba04be0f51d7938d61ae935d78a7b25f19bfb6fce1b406621650fb3bcc386d56c805752'
         }
-        # cURL is required for test_parse_url
-        $MEDIAINFO_VERSION = '24.12'
-        $file = "MediaInfo_CLI_${MEDIAINFO_VERSION}_Windows_${mediainfo_arch}.zip"
-        Start-FileDownload "https://mediaarea.net/download/binary/mediainfo/${MEDIAINFO_VERSION}/${file}"
-        $hash = (Get-FileHash "${file}" -Algorithm SHA512).Hash
-        if ($hash -ne $expected_hash) {
-          Write-Error "Hash mismatch for ${file}: expected ${expected_hash}, got ${hash}"
-          exit 1
-        }
-        unzip -o "${file}" LIBCURL.DLL
         pdm run "build_win32_${pdm_arch}"
         # Install the wheel we created
         Get-ChildItem dist/*.whl | ForEach-Object { pip install $_.FullName }
