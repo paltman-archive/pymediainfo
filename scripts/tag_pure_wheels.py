@@ -14,7 +14,7 @@ from wheel.cli.tags import tags  # type: ignore[import-untyped]
 script_folder = Path(__file__).resolve().parent
 sys.path.append(str(script_folder))
 
-from mediainfo_config import get_version_and_bundle_info  # noqa: E402
+from mediainfo_config import get_current_platform_and_arch, get_version_and_bundle_info  # noqa: E402
 
 if TYPE_CHECKING:
     import os
@@ -82,8 +82,7 @@ if __name__ == "__main__":
         parser.error("either -A/--auto, or -a/--arch with -p/--platform must be used")
 
     if args.auto:
-        args.platform = platform.system().lower()
-        args.arch = platform.machine().lower()
+        args.platform, args.arch = get_current_platform_and_arch()
 
     # Get platform_tag from pyproject.toml
     if not args.platform_tag:

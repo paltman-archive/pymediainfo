@@ -22,10 +22,10 @@ import requests
 script_folder = Path(__file__).resolve().parent
 sys.path.append(str(script_folder))
 
-from mediainfo_config import get_version_and_bundle_info  # noqa: E402
+from mediainfo_config import get_current_platform_and_arch, get_version_and_bundle_info  # noqa: E402
 
 if TYPE_CHECKING:
-    from typing import Literal
+    from mediainfo_config import Architecture, Platform
 
 
 #: Base URL for downloading MediaInfo library
@@ -49,10 +49,10 @@ class Downloader:
     version: str
 
     #: Platform of the bundled MediaInfo library
-    platform: Literal["linux", "darwin", "win32"]
+    platform: Platform
 
     #: Architecture of the bundled MediaInfo library
-    arch: Literal["x86_64", "arm64", "i386"]
+    arch: Architecture
 
     #: BLAKE2b hash of the downloaded MediaInfo library
     checksums: str | None = None
@@ -271,8 +271,8 @@ class Downloader:
 def download_files(
     folder: os.PathLike[str] | str,
     version: str,
-    platform: Literal["linux", "darwin", "win32"],
-    arch: Literal["x86_64", "arm64", "i386"],
+    platform: Platform,
+    arch: Architecture,
     *,
     checksums: str | None = None,
     timeout: int = 20,
@@ -291,8 +291,8 @@ def download_files(
 
 def get_file_hashes(
     version: str,
-    platform: Literal["linux", "darwin", "win32"],
-    arch: Literal["x86_64", "arm64", "i386"],
+    platform: Platform,
+    arch: Architecture,
     *,
     timeout: int = 20,
     verbose: bool = True,
@@ -398,8 +398,6 @@ def make_parser() -> argparse.ArgumentParser:
 
 
 if __name__ == "__main__":
-    import platform
-
     parser = make_parser()
     args = parser.parse_args()
 
@@ -410,8 +408,7 @@ if __name__ == "__main__":
         parser.error(f"{args.folder} does not exist or is not a folder")
 
     if args.auto:
-        args.platform = platform.system().lower()
-        args.arch = platform.machine().lower()
+        args.platform, args.arch = get_current_platform_and_arch()
 
     # Clean folder
     if args.clean:

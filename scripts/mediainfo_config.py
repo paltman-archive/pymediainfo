@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import platform as py_platform
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -12,14 +13,17 @@ import tomlkit
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from typing import Literal, TypedDict
+    from typing import Literal, TypedDict, TypeAlias
+
+    Platform: TypeAlias = Literal["linux", "darwin", "win32"]
+    Architecture: TypeAlias = Literal["x86_64", "arm64", "i386"]
 
     class BundledWheelInfo(TypedDict):
         """Info about a bundled wheel."""
 
         tag: str
-        platform: Literal["linux", "darwin", "win32"]
-        arch: Literal["x86_64", "arm64", "i386"]
+        platform: Platform
+        arch: Architecture
         blake2b_sums: str
 
     class MediainfoConfigDict(TypedDict):
@@ -31,6 +35,42 @@ if TYPE_CHECKING:
 
 #: The path of the default pyproject.toml config file."""
 DEFAULT_CONFIG_FILE = Path(__file__).resolve().parent.parent / "pyproject.toml"
+
+def get_current_platform_and_arch() -> tuple[Platform, Architecture]:
+    """Get the normalized platform and architecture of the machine running the script."""
+    # Get platform
+    platform = py_platform.system().lower()
+    # Normalize platform
+    if platform.startswith("win"):
+        platform = "win32"
+
+    # Get architecture
+    arch = py_platform.machine().lower()
+    # Normalize platform
+    if arch == "amd64":
+        arch = "x86_64"
+
+    # Check
+    messages = []
+    allowed_platforms = ["linux", "darwin", "win32"]
+    if platform not in allowed_platforms:
+        msg = f"  - Platform {platform!r} is not supported, should be one of {allowed_platforms}"
+        messages.append(msg)
+
+    allowed_archs = ["x86_64", "arm64", "i386"]
+    if arch not in allowed_archs:
+        msg = f"  - Architecture {arch!r} is not supported, should be one of {allowed_archs}"
+        messages.append(msg)
+
+    # Not supported platform or architecture
+    if len(messages) > 0:
+        msg = "The current system is not supported:\n" + "\n".join(messages)
+        raise ValueError(msg)
+
+    # Cast to correct type
+    platform = cast("Platform", platform)
+    arch = cast("Architecture", arch)
+    return platform, arch
 
 
 def get_mediainfo_config() -> MediainfoConfigDict:
