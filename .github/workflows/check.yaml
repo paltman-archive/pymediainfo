@@ -1,0 +1,270 @@
+name: check and deploy
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      test-deploy:
+        description: 'Deploy to test-PyPI after running the tests'
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_PYTHON_VERSION_WARNING: "1"
+
+jobs:
+  build-package:
+    name: Build & verify package
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: hynek/build-and-inspect-python-package@v2
+        id: baipp
+
+    outputs:
+      # Used to define the matrix for tests below. The value is based on
+      # packaging metadata (trove classifiers).
+      supported-python-versions: ${{ steps.baipp.outputs.supported_python_classifiers_json_array }}
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version-default
+      - uses: pre-commit/action@v3.0.1
+
+  typing:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version-default
+      - name: Install tox
+        run: python -Im pip install tox
+      - name: type-check
+        run: tox -e mypy
+
+  docs:
+    name: Build docs and run doctests
+    runs-on: ubuntu-latest
+    needs: build-package
+    steps:
+      - name: Download pre-built packages
+        uses: actions/download-artifact@v4
+        with:
+          name: Packages
+          path: dist
+      - run: tar xf dist/*.tar.gz --strip-components=1
+      - uses: actions/setup-python@v5
+        with:
+          # Keep in sync with tox/docs, pyproject.toml and .readthedocs.yaml.
+          python-version: "3.12"
+      - name: Install tox
+        run: python -Im pip install tox
+      - name: Build and check docs
+        run: tox -e docs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: docs/_build/
+
+  install-dev:
+    name: Verify install env
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version-default
+          cache: pip
+
+      - name: Install in dev mode & import
+        run: |
+          python -Im pip install -e .[dev]
+          python -Ic 'import pymediainfo; print(pymediainfo.__version__)'
+
+  test:
+    name: test ${{ matrix.py }} - ${{ matrix.os }} - ${{ matrix.architecture }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        py:
+          - "pypy3.10" # ahead to start it earlier because takes longer
+          - "3.13"
+          - "3.12"
+          - "3.11"
+          - "3.10"
+          - "3.9"
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        arch:
+          - x86
+          - x64
+          - arm64
+
+        exclude:
+          - os: macos-latest
+            arch: "x86"
+          - os: ubuntu-latest
+            arch: "x86"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Setup PDM
+        uses: pdm-project/setup-pdm@v4
+        with:
+          python-version: ${{ matrix.py }}
+          architecture: ${{ matrix.arch }}
+          cache: true
+      - name: Install dependencies
+        run: pdm install --dev --no-self
+
+      - name: Build the bundled wheel
+        run: |
+          pdm run build_wheel -A
+
+      - name: Upload wheel
+        if: ${{ matrix.py }} == "3.13" && (${{ matrix.os }} != "macos-latest" || ${{ matrix.arch }} == "arm64")
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.arch }}
+          path: "dist/*.whl"
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Remove src to ensure tests run against wheel
+        run: rm -rf src
+      - name: Run tests installing from the wheel
+        run: tox --installpkg dist/*.whl
+
+  build-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Setup PDM
+        uses: pdm-project/setup-pdm@v4
+        with:
+          cache: true
+      - name: Install dependencies
+        run: pdm install --dev --no-self
+      - name: Build the bundled wheels
+        run: pdm build
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: source
+          # upload only the source, not the wheel
+          path: dist/*.tar.gz
+          retention-days: 3
+          if-no-files-found: error
+
+
+  # Upload to Test PyPI manually triggered.
+  release-test-pypi:
+    name: Publish in-dev package to test.pypi.org
+    environment: release-test-pypi
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test-deploy == true
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    permissions:
+      id-token: write
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist/
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist/
+      - name: Publish to Test PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+          repository-url: https://test.pypi.org/legacy/
+
+
+  # Upload to real PyPI on GitHub Releases.
+  release-pypi:
+    name: Publish to PyPI
+    needs: [build, test]
+    environment: release-pypi
+    if: github.repository_owner == 'sbraz' && github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist/
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+
+  # Ensure everything required is passing for branch protection.
+  required-checks-pass:
+    if: always()
+
+    needs:
+      - pre-commit
+      - docs
+      - install-dev
+      - typing
+      - test
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}
