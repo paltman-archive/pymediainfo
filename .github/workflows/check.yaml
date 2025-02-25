@@ -1,10 +1,20 @@
-name: check
+name: check and deploy
 
 on:
-  workflow_dispatch:
   push:
     branches: [master]
   pull_request:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      test-deploy:
+        description: 'Deploy to test-PyPI after running the tests'
+        type: boolean
+        default: false
+
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -134,6 +144,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Setup PDM
         uses: pdm-project/setup-pdm@v4
@@ -155,11 +166,89 @@ jobs:
           name: wheel-${{ matrix.os }}-${{ matrix.arch }}
           path: "dist/*.whl"
           retention-days: 3
+          if-no-files-found: error
 
       - name: Remove src to ensure tests run against wheel
         run: rm -rf src
       - name: Run tests installing from the wheel
         run: tox --installpkg dist/*.whl
+
+  build-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Setup PDM
+        uses: pdm-project/setup-pdm@v4
+        with:
+          cache: true
+      - name: Install dependencies
+        run: pdm install --dev --no-self
+      - name: Build the bundled wheels
+        run: pdm build
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: source
+          # upload only the source, not the wheel
+          path: dist/*.tar.gz
+          retention-days: 3
+          if-no-files-found: error
+
+
+  # Upload to Test PyPI manually triggered.
+  release-test-pypi:
+    name: Publish in-dev package to test.pypi.org
+    environment: release-test-pypi
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.test-deploy == true
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    permissions:
+      id-token: write
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist/
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist/
+      - name: Publish to Test PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+          repository-url: https://test.pypi.org/legacy/
+
+
+  # Upload to real PyPI on GitHub Releases.
+  release-pypi:
+    name: Publish to PyPI
+    needs: [build, test]
+    environment: release-pypi
+    if: github.repository_owner == 'sbraz' && github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist/
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
 
   # Ensure everything required is passing for branch protection.
   required-checks-pass:
